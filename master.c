@@ -151,8 +151,9 @@ int sigHandling(){
 
 static void endAllProcesses(int signo){
 	doneflag = 1;
-	killpg(getpgid(getpid()), SIGTERM);
-
+	if(signo == SIGALRM){
+		killpg(getpgid(getpid()), SIGINT);
+	}
 }
 
 static void childFinished(int signo){
