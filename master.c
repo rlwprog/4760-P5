@@ -18,6 +18,8 @@
 #include "master.h"
 
 #define SHMCLOCKKEY	86868            /* Parent and child agree on common key for clock.*/
+#define MSGQUEUEKEY	68686            /* Parent and child agree on common key for msgqueue.*/
+
 
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
@@ -28,6 +30,14 @@ static volatile sig_atomic_t doneflag = 0;
 // 	doneflag = 1;
 // }
 int totalChildren;
+int shmclock;
+
+
+static clockStruct *clock;
+
+int shmclock;
+
+static int queueid;
 
 int main (int argc, char *argv[]){
 
@@ -40,22 +50,23 @@ int main (int argc, char *argv[]){
 	alarm(timeLimit);
 
 	sigHandling();
+	initPCBStructures();
 
-	static clockStruct *clock;
+	mymsg_t *ptocMsg;
+	ptocMsg = malloc(sizeof(mymsg_t));
+	int len = sizeof(mymsg_t) - sizeof(long);
+	ptocMsg -> mtype = 1;
+	ptocMsg -> clockBurst = 5;
+	ptocMsg -> pid = getpid();
+	ptocMsg -> msg = 10;
 
-	int shmclock = shmget(SHMCLOCKKEY, sizeof(clockStruct), 0666 | IPC_CREAT);
-
-	clock = (clockStruct *)shmat(shmclock, NULL, 0);
-
-	clock -> seconds = 0;
-	clock -> nanosecs = 0;
-
-
-
+	msgsnd(queueid, ptocMsg, len, 0);
+	ptocMsg -> msg = 20;
+	msgsnd(queueid, ptocMsg, len, 0);
 
 
 	// int i;
-	for(totalChildren = 0; totalChildren < 10; totalChildren++){
+	for(totalChildren = 0; totalChildren < 2; totalChildren++){
 		if ((childPid = fork()) == 0){
 			execlp("./worker", "./worker", (char*)NULL);
 
@@ -96,9 +107,19 @@ int main (int argc, char *argv[]){
     }
 
     printf("End of parent\n");
+
+
+	// mymsg_t *ctopMsg;
+	// ctopMsg = malloc(sizeof(mymsg_t));
+	
+	// msgrcv(queueid, ctopMsg, len, 1, 0);
+	// printf("Received message: %d\n", ctopMsg->msg);
+
+
 	shmdt(clock);
 
 	shmctl(shmclock, IPC_RMID, NULL);
+	remmsgqueue();
 
 	printf("Pid of first in blocked queue: %d\n", firstInQueue->head->pid);
 	printf("Pid of first in blocked queue's next PCB's pid: %d\n", firstInQueue->next->head->pid);
@@ -123,7 +144,7 @@ int sigHandling(){
 		return -1;
 	}
 
-	//set up handler for ctrl-C
+	//set up handler for SIGINT
 	struct sigaction controlc;
 
 	controlc.sa_handler = endAllProcesses;
@@ -166,6 +187,28 @@ static void childFinished(int signo){
 			totalChildren -= 1;
 		}
 	}
+}
+
+int initPCBStructures(){
+	// init clock
+	shmclock = shmget(SHMCLOCKKEY, sizeof(clockStruct), 0666 | IPC_CREAT);
+	clock = (clockStruct *)shmat(shmclock, NULL, 0);
+
+	clock -> seconds = 0;
+	clock -> nanosecs = 0;
+
+	//queues
+	queueid = msgget(MSGQUEUEKEY, PERMS | IPC_CREAT);
+	if (queueid == -1){
+		return -1;
+	} 
+
+
+	return 0;
+}
+
+int remmsgqueue(){
+	return msgctl(queueid, IPC_RMID, NULL);
 }
 
 BlockedQueue *newQueueMember(int pid)

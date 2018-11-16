@@ -19,14 +19,20 @@ typedef struct pcb {
 } PCB;
 
 typedef struct {
-	int pid;
-	int value;
-} dispatchStruct;
+	long mtype;
+	int clockBurst;
+	pid_t pid;
+	int msg;
+} mymsg_t;
 
 
 int sigHandling();
+
 static void endAllProcesses(int signo);
 static void childFinished(int signo);
+
+int initPCBStructures();
+int remmsgqueue();
 
 BlockedQueue *newQueueMember(int pid);
 PCB *newPCB(int pid);

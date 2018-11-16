@@ -16,6 +16,7 @@
 #include <fcntl.h>
 
 #define SHMCLOCKKEY	86868             /* Parent and child agree on common key for clock.*/
+#define MSGQUEUEKEY	68686            /* Parent and child agree on common key for msgqueue.*/
 
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
@@ -26,14 +27,23 @@ static volatile sig_atomic_t childDoneFlag = 0;
 // 	childDoneFlag = 1;
 // }
 
+static int queueid;
+
 int sigHandling();
 static void endChild(int signo);
-void tearDown();
+int tearDown();
 
 typedef struct {
 	int seconds;
 	int nanosecs;
 } clockStruct;
+
+typedef struct {
+	long mtype;
+	int clockBurst;
+	pid_t pid;
+	int msg;
+} mymsg_t;
 
 int main (int argc, char *argv[]){
 
@@ -60,7 +70,18 @@ int main (int argc, char *argv[]){
 			}
 		
 	}
+	queueid = msgget(MSGQUEUEKEY, PERMS | IPC_CREAT);
+	if (queueid == -1){
+		return -1;
+	} 
 
+	mymsg_t *ctopMsg;
+	ctopMsg = malloc(sizeof(mymsg_t));
+	int len = sizeof(mymsg_t) - sizeof(long);
+
+	
+	msgrcv(queueid, ctopMsg, len, 1, 0);
+	printf("Received message in child %d: %d\n", pid, ctopMsg->msg);
 
 	shmdt(clock);
 	printf("End of child\n");
@@ -71,8 +92,9 @@ int main (int argc, char *argv[]){
 }
 
 
-void tearDown(){
-	// shmdt(clock);
+int tearDown(){
+
+	return msgctl(queueid, IPC_RMID, NULL);
 }
 
 int sigHandling(){
