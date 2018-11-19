@@ -32,7 +32,7 @@ static void endAllProcesses(int signo);
 static void childFinished(int signo);
 
 int initPCBStructures();
-int remmsgqueue();
+void tearDown();
 
 BlockedQueue *newQueueMember(int pid);
 PCB *newPCB(int pid);

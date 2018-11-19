@@ -24,20 +24,14 @@
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
 
+//globals
 static volatile sig_atomic_t doneflag = 0;
 
-// static void setdoneflag(int signo){
-// 	doneflag = 1;
-// }
+static clockStruct *clock;
+static int queueid;
+
 int totalChildren;
 int shmclock;
-
-
-static clockStruct *clock;
-
-int shmclock;
-
-static int queueid;
 
 int main (int argc, char *argv[]){
 
@@ -116,10 +110,10 @@ int main (int argc, char *argv[]){
 	// printf("Received message: %d\n", ctopMsg->msg);
 
 
-	shmdt(clock);
+	// shmdt(clock);
 
-	shmctl(shmclock, IPC_RMID, NULL);
-	remmsgqueue();
+	// shmctl(shmclock, IPC_RMID, NULL);
+	tearDown();
 
 	printf("Pid of first in blocked queue: %d\n", firstInQueue->head->pid);
 	printf("Pid of first in blocked queue's next PCB's pid: %d\n", firstInQueue->next->head->pid);
@@ -207,8 +201,10 @@ int initPCBStructures(){
 	return 0;
 }
 
-int remmsgqueue(){
-	return msgctl(queueid, IPC_RMID, NULL);
+void tearDown(){
+	shmdt(clock);
+	shmctl(shmclock, IPC_RMID, NULL);
+	msgctl(queueid, IPC_RMID, NULL);
 }
 
 BlockedQueue *newQueueMember(int pid)

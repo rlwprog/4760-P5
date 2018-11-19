@@ -27,12 +27,6 @@ static volatile sig_atomic_t childDoneFlag = 0;
 // 	childDoneFlag = 1;
 // }
 
-static int queueid;
-
-int sigHandling();
-static void endChild(int signo);
-int tearDown();
-
 typedef struct {
 	int seconds;
 	int nanosecs;
@@ -45,22 +39,26 @@ typedef struct {
 	int msg;
 } mymsg_t;
 
+//globals
+
+static int queueid;
+static clockStruct *clock;
+
+int shmclock;
+
+int sigHandling();
+int initPCBStructures();
+static void endChild(int signo);
+void tearDown();
+
 int main (int argc, char *argv[]){
 
 	int pid = getpid();
-
 	sigHandling();
-	
-	static clockStruct *clock;
-
+	initPCBStructures();
 
     printf("Child process enterred: %d\n", pid);
 
-
-	int shmclock = shmget(SHMCLOCKKEY, sizeof(clockStruct), 0666 | IPC_CREAT);
-
-
-	clock = (clockStruct *)shmat(shmclock, NULL, 0);
 
 	while(!childDoneFlag){
 		
@@ -70,10 +68,6 @@ int main (int argc, char *argv[]){
 			}
 		
 	}
-	queueid = msgget(MSGQUEUEKEY, PERMS | IPC_CREAT);
-	if (queueid == -1){
-		return -1;
-	} 
 
 	mymsg_t *ctopMsg;
 	ctopMsg = malloc(sizeof(mymsg_t));
@@ -83,18 +77,31 @@ int main (int argc, char *argv[]){
 	msgrcv(queueid, ctopMsg, len, 1, 0);
 	printf("Received message in child %d: %d\n", pid, ctopMsg->msg);
 
-	shmdt(clock);
 	printf("End of child\n");
 	exit(1);
 	return 1;
 
 
 }
+int initPCBStructures(){
+	// init clock
+	shmclock = shmget(SHMCLOCKKEY, sizeof(clockStruct), 0666 | IPC_CREAT);
+	clock = (clockStruct *)shmat(shmclock, NULL, 0);
+
+	//queues
+	queueid = msgget(MSGQUEUEKEY, PERMS | IPC_CREAT);
+	if (queueid == -1){
+		return -1;
+	} 
+
+	return 0;
+}
+
+void tearDown(){
+	shmdt(clock);
 
 
-int tearDown(){
-
-	return msgctl(queueid, IPC_RMID, NULL);
+ 	msgctl(queueid, IPC_RMID, NULL);
 }
 
 int sigHandling(){
