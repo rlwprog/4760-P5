@@ -1,9 +1,7 @@
-typedef struct node
-{
+typedef struct node {
     struct node *next;
     struct pcb *head; 
-
-} BlockedQueue;
+} Queue;
 
 typedef struct {
 	int seconds;
@@ -25,6 +23,10 @@ typedef struct {
 	int msg;
 } mymsg_t;
 
+typedef struct {
+	int resourcesUsed[20];
+} resourceStruct;
+
 
 int sigHandling();
 
@@ -34,5 +36,8 @@ static void childFinished(int signo);
 int initPCBStructures();
 void tearDown();
 
-BlockedQueue *newQueueMember(int pid);
+Queue *newQueueMember(int pid);
 PCB *newPCB(int pid);
+
+int checkIfTimeToFork();
+void setForkTimer();

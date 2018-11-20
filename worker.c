@@ -17,6 +17,7 @@
 
 #define SHMCLOCKKEY	86868             /* Parent and child agree on common key for clock.*/
 #define MSGQUEUEKEY	68686            /* Parent and child agree on common key for msgqueue.*/
+#define MAXRESOURCEKEY	71657            /* Parent and child agree on common key for resources.*/
 
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
@@ -39,12 +40,18 @@ typedef struct {
 	int msg;
 } mymsg_t;
 
-//globals
+typedef struct {
+	int resourcesUsed[20];
+} resourceStruct;
 
+//globals
 static int queueid;
+static resourceStruct *maxResources;
+static resourceStruct *allocatedResources;
 static clockStruct *clock;
 
 int shmclock;
+int maxResourceSegment;
 
 int sigHandling();
 int initPCBStructures();
@@ -54,16 +61,18 @@ void tearDown();
 int main (int argc, char *argv[]){
 
 	int pid = getpid();
+	int i;
+
+
 	sigHandling();
 	initPCBStructures();
 
     printf("Child process enterred: %d\n", pid);
 
-
 	while(!childDoneFlag){
 		
 			printf("Child %d reads clock   %d : %d\n", pid, clock->seconds, clock->nanosecs);
-			if(clock->seconds >= 2){
+			if(clock->seconds >= 10){
 				childDoneFlag = 1;
 			}
 		
@@ -77,7 +86,11 @@ int main (int argc, char *argv[]){
 	msgrcv(queueid, ctopMsg, len, 1, 0);
 	printf("Received message in child %d: %d\n", pid, ctopMsg->msg);
 
-	printf("End of child\n");
+	for (i = 0; i < 20; i++){
+		printf("Printings resources for %d: %d\n", pid, maxResources->resourcesUsed[i]);
+	}
+
+	printf("End of child %d\n", pid);
 	exit(1);
 	return 1;
 
@@ -87,6 +100,22 @@ int initPCBStructures(){
 	// init clock
 	shmclock = shmget(SHMCLOCKKEY, sizeof(clockStruct), 0666 | IPC_CREAT);
 	clock = (clockStruct *)shmat(shmclock, NULL, 0);
+
+	//init resources
+	maxResourceSegment = shmget(MAXRESOURCEKEY, (sizeof(resourceStruct) + 1), 0666 | IPC_CREAT);
+	maxResources = (resourceStruct *)shmat(maxResourceSegment, NULL, 0);
+	if (maxResourceSegment == -1){
+		return -1;
+	}
+
+	// init allocated resources
+	allocatedResources = malloc(sizeof(resourceStruct));
+	int r;
+	for (r = 0; r < 20; r++){
+		allocatedResources->resourcesUsed[r] = 0;
+	}
+
+
 
 	//queues
 	queueid = msgget(MSGQUEUEKEY, PERMS | IPC_CREAT);
@@ -99,7 +128,7 @@ int initPCBStructures(){
 
 void tearDown(){
 	shmdt(clock);
-
+	shmdt(maxResources);
 
  	msgctl(queueid, IPC_RMID, NULL);
 }
@@ -136,5 +165,5 @@ static void endChild(int signo){
 		childDoneFlag = 1;
 		
 
-	}
+}
 
