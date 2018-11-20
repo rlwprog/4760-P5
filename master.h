@@ -10,15 +10,12 @@ typedef struct {
 
 typedef struct pcb {
 	int pid;
-	int totalCPUtimeUsed;
-	int totalTimeInSystem;
-	int lastBurst;
-	int processPriority;
+	int totalBlockedTime;
+	int blockedBurst;
 } PCB;
 
 typedef struct {
 	long mtype;
-	int clockBurst;
 	pid_t pid;
 	int msg;
 } mymsg_t;
@@ -41,3 +38,4 @@ PCB *newPCB(int pid);
 
 int checkIfTimeToFork();
 void setForkTimer();
+int deadlockAvoidance(int requestedElement);

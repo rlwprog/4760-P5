@@ -31,6 +31,8 @@ static volatile sig_atomic_t doneflag = 0;
 static clockStruct *sharedClock;
 static clockStruct *forkTime;
 static resourceStruct *maxResources;
+static resourceStruct *allocatedResources;
+static mymsg_t *toParentMsg;
 static int queueid;
 
 int randForkTime;
@@ -39,6 +41,7 @@ int maxResourceSegment;
 
 int totalChildren;
 int shmclock;
+int lenOfMessage;
 
 int main (int argc, char *argv[]){
 
@@ -55,7 +58,7 @@ int main (int argc, char *argv[]){
 	int requestsGranted = 0;
 	int totalRequests = 0;
 	int deadlockFunctionCount = 0;
-	int childLimit = 18;
+	int childLimit = 2;
     totalChildren = 0;
 
 	sigHandling();
@@ -64,43 +67,22 @@ int main (int argc, char *argv[]){
 	alarm(timeLimit);
 	// setForkTimer();
 
-	mymsg_t *ptocMsg;
-	ptocMsg = malloc(sizeof(mymsg_t));
-	int len = sizeof(mymsg_t) - sizeof(long);
-	ptocMsg -> mtype = 1;
-	ptocMsg -> clockBurst = 5;
-	ptocMsg -> pid = getpid();
-	ptocMsg -> msg = 10;
+	// init to message struct 
+	mymsg_t *toParentMsg;
+	toParentMsg = malloc(sizeof(mymsg_t));
+	lenOfMessage = sizeof(mymsg_t) - sizeof(long);
 
-	msgsnd(queueid, ptocMsg, len, 0);
-	ptocMsg -> msg = 20;
-	msgsnd(queueid, ptocMsg, len, 0);
+	//init allocated resources
+	allocatedResources = malloc(sizeof(allocatedResources));
 
+	// init both resource structs' resource elements
 	int i;
 	for (i = 0; i < 20; i++){
 		maxResources->resourcesUsed[i] = (rand() % 9) + 1;
+		allocatedResources->resourcesUsed[i] = 0;
 	}
 	
 	setForkTimer();
-
-	// int i;
-	// for(totalChildren = 0; totalChildren < 2; totalChildren++){
-	// 	if ((childPid = fork()) == 0){
-	// 		execlp("./worker", "./worker", (char*)NULL);
-
-	// 		fprintf(stderr, "%sFailed exec worker!\n", argv[0]);
-	// 		_exit(1);
-	// 	}
-
-	// 	if (firstInProcessList == NULL){
-	// 		firstInProcessList = newQueueMember(childPid);
-	// 		lastInProcessList = firstInProcessList;
-	// 	} else {
-	// 		lastInProcessList = lastInProcessList->next = newQueueMember(childPid);
-
-	// 	}
-
-	// }
 
 		// // put in blocked queue
 		// if (firstInBlockedQueue == NULL){
@@ -134,7 +116,25 @@ int main (int argc, char *argv[]){
 			setForkTimer();
 		}	
 
+		if(msgrcv(queueid, toParentMsg, lenOfMessage, 1, IPC_NOWAIT) != -1){
+			printf("Message received from %d to terminate itself\n", toParentMsg->pid);
 
+		}
+
+		if(msgrcv(queueid, toParentMsg, lenOfMessage, 3, IPC_NOWAIT) != -1){
+			printf("Message received from %d to request resource %d from parent\n", toParentMsg->pid, toParentMsg->msg);
+			if (deadlockAvoidance(toParentMsg->msg) == 1){
+				toParentMsg->mtype = toParentMsg->pid;
+				printf("Resource granted to %d\n", toParentMsg->pid);
+				msgsnd(queueid, toParentMsg, lenOfMessage, 0);
+			}
+
+		}
+
+		if(msgrcv(queueid, toParentMsg, lenOfMessage, 2, IPC_NOWAIT) != -1){
+			printf("Message received from %d to deallocate resource %d in parent\n", toParentMsg->pid, toParentMsg->msg);
+
+		}
 
         // printf("Parent %d : %d\n", sharedClock->seconds, sharedClock->nanosecs);
          sharedClock->nanosecs += 1000;
@@ -256,6 +256,12 @@ int initPCBStructures(){
 		return -1;
 	} 
 
+	// // init to message struct 
+	// mymsg_t *toParentMsg;
+	// toParentMsg = malloc(sizeof(mymsg_t));
+	// lenOfMessage = sizeof(mymsg_t) - sizeof(long);
+
+
 
 	return 0;
 }
@@ -283,10 +289,8 @@ PCB *newPCB(int pid){
 	PCB *newP;
 	newP = malloc(sizeof(PCB));
 	newP->pid = pid;
-	newP->totalCPUtimeUsed = 0;
-	newP->totalTimeInSystem = 0;
-	newP->lastBurst = 0;
-	newP->processPriority = 0;
+	newP->totalBlockedTime = 0;
+	newP->blockedBurst = 0;
 
 	return newP;
 }
@@ -307,10 +311,13 @@ void setForkTimer(){
 	if(forkTime->nanosecs >= 1000000000){
 		forkTime->seconds += 1;
 	}
-
-	
-	// printf("Nano at fork time: %d\n", forkTime->nanosecs);
-	// printf("Sec at fork time: %d\n", forkTime->seconds);
-
 }
 
+int deadlockAvoidance(int requestedElement){
+	if((allocatedResources->resourcesUsed[requestedElement]) < (maxResources->resourcesUsed[requestedElement])){
+		allocatedResources->resourcesUsed[requestedElement] += 1;
+		return 1;
+	} else {
+		return 0;
+	}
+}

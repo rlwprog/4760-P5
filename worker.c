@@ -14,10 +14,14 @@
 #include <semaphore.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <time.h>
 
 #define SHMCLOCKKEY	86868             /* Parent and child agree on common key for clock.*/
 #define MSGQUEUEKEY	68686            /* Parent and child agree on common key for msgqueue.*/
 #define MAXRESOURCEKEY	71657            /* Parent and child agree on common key for resources.*/
+
+#define TERMCONSTANT 2 				// Percent chance that a child process will terminate instead of requesting/releasing a resource
+#define REQUESTCONSTANT 50			// Percent chance that a child process will request a new resource
 
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
@@ -35,7 +39,6 @@ typedef struct {
 
 typedef struct {
 	long mtype;
-	int clockBurst;
 	pid_t pid;
 	int msg;
 } mymsg_t;
@@ -48,8 +51,11 @@ typedef struct {
 static int queueid;
 static resourceStruct *maxResources;
 static resourceStruct *allocatedResources;
-static clockStruct *clock;
+static clockStruct *sharedClock;
+static mymsg_t *toParentMsg;
 
+
+int lenOfMessage;
 int shmclock;
 int maxResourceSegment;
 
@@ -60,8 +66,12 @@ void tearDown();
 
 int main (int argc, char *argv[]){
 
-	int pid = getpid();
+	srand(time(NULL) + getpid());
+
+	pid_t pid = getpid();
 	int i;
+	int randomResourceChoice;
+	int randomActionTaken;
 
 
 	sigHandling();
@@ -70,25 +80,63 @@ int main (int argc, char *argv[]){
     printf("Child process enterred: %d\n", pid);
 
 	while(!childDoneFlag){
+			randomActionTaken = rand() % 100;
+			// printf("Child %d randomly selects the action %d\n", pid, randomActionTaken);
+			randomResourceChoice = rand() % 20;
+
+
+			if(randomActionTaken < TERMCONSTANT){
+				childDoneFlag = 1;
+				//terminate child, send termination status to parent to deallocated resources
+				// printf("Child %d terminated!\n", pid);
+				toParentMsg->mtype = 1;
+				toParentMsg->pid = pid;
+				toParentMsg->msg = 0;
+				msgsnd(queueid, toParentMsg, lenOfMessage, 1);
+			} else if (randomActionTaken >= TERMCONSTANT && randomActionTaken < REQUESTCONSTANT){
+				if ((allocatedResources->resourcesUsed[randomResourceChoice]) < (maxResources->resourcesUsed[randomResourceChoice])){
+					//ask for resource
+					toParentMsg->mtype = 3;
+					toParentMsg->pid = pid;
+					toParentMsg->msg = randomResourceChoice;
+					// printf("Child %d asks for resource %d\n", pid, randomResourceChoice);
+					msgsnd(queueid, toParentMsg, lenOfMessage, 3);
+					if (msgrcv(queueid, toParentMsg, lenOfMessage, pid, 0) != -1){
+						allocatedResources->resourcesUsed[randomResourceChoice] += 1;
+					}
+
+				}
+			} else {
+				if ((allocatedResources->resourcesUsed[randomResourceChoice]) > 0){
+					//tell parent resource is being deallocated
+					toParentMsg->mtype = 2;
+					toParentMsg->pid = pid;
+					toParentMsg->msg = randomResourceChoice;
+					// printf("Child %d asks to dealocate resource %d\n", pid, randomResourceChoice);
+					msgsnd(queueid, toParentMsg, lenOfMessage, 2);
+					if (msgrcv(queueid, toParentMsg, lenOfMessage, pid, 0) != -1){
+						allocatedResources->resourcesUsed[randomResourceChoice] -= 1;
+					}
+				}
+			}
+
+
+
 		
-			printf("Child %d reads clock   %d : %d\n", pid, clock->seconds, clock->nanosecs);
-			if(clock->seconds >= 10){
+			// printf("Child %d reads clock   %d : %d\n", pid, sharedClock->seconds, sharedClock->nanosecs);
+			if(sharedClock->seconds >= 10){
 				childDoneFlag = 1;
 			}
 		
 	}
 
-	mymsg_t *ctopMsg;
-	ctopMsg = malloc(sizeof(mymsg_t));
-	int len = sizeof(mymsg_t) - sizeof(long);
-
 	
-	msgrcv(queueid, ctopMsg, len, 1, 0);
-	printf("Received message in child %d: %d\n", pid, ctopMsg->msg);
+	// msgrcv(queueid, toParentMsg, lenOfMessage, 1, 0);
+	// printf("Received message in child %d: %d\n", pid, ctopMsg->msg);
 
-	for (i = 0; i < 20; i++){
-		printf("Printings resources for %d: %d\n", pid, maxResources->resourcesUsed[i]);
-	}
+	// for (i = 0; i < 20; i++){
+	// 	printf("Printings resources for %d: %d\n", pid, maxResources->resourcesUsed[i]);
+	// }
 
 	printf("End of child %d\n", pid);
 	exit(1);
@@ -99,7 +147,7 @@ int main (int argc, char *argv[]){
 int initPCBStructures(){
 	// init clock
 	shmclock = shmget(SHMCLOCKKEY, sizeof(clockStruct), 0666 | IPC_CREAT);
-	clock = (clockStruct *)shmat(shmclock, NULL, 0);
+	sharedClock = (clockStruct *)shmat(shmclock, NULL, 0);
 
 	//init resources
 	maxResourceSegment = shmget(MAXRESOURCEKEY, (sizeof(resourceStruct) + 1), 0666 | IPC_CREAT);
@@ -116,12 +164,18 @@ int initPCBStructures(){
 	}
 
 
-
 	//queues
 	queueid = msgget(MSGQUEUEKEY, PERMS | IPC_CREAT);
 	if (queueid == -1){
 		return -1;
 	} 
+
+	// init to message struct 
+	toParentMsg = malloc(sizeof(mymsg_t));
+	lenOfMessage = sizeof(mymsg_t) - sizeof(long);
+
+	
+
 
 	return 0;
 }
