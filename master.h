@@ -8,12 +8,17 @@ typedef struct {
 	int nanosecs;
 } clockStruct;
 
+typedef struct {
+	int resourcesUsed[20];
+} resourceStruct;
+
 typedef struct pcb {
 	int pid;
 	int requestedResource;
 	int totalBlockedTime;
 	int blockedBurstSecond;
 	int blockedBurstNano;
+	resourceStruct *resUsed;
 } PCB;
 
 typedef struct {
@@ -21,11 +26,6 @@ typedef struct {
 	pid_t pid;
 	int res;
 } mymsg_t;
-
-typedef struct {
-	int resourcesUsed[20];
-} resourceStruct;
-
 
 int sigHandling();
 

@@ -125,6 +125,7 @@ int main (int argc, char *argv[]){
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 3, IPC_NOWAIT) != -1){
 			// printf("Message received from %d to request resource %d from parent\n", toParentMsg->pid, toParentMsg->msg);
 			if (deadlockAvoidance(toParentMsg->res) == 1){
+				findPCB(toParentMsg->pid, firstInProcessList)->resUsed->resourcesUsed[toParentMsg->res] += 1;
 				toParentMsg->mtype = toParentMsg->pid;
 				// printf("Resource granted to %d\n", toParentMsg->pid);
 				msgsnd(queueid, toParentMsg, lenOfMessage, 0);
@@ -349,6 +350,12 @@ void printQueue(Queue * ptr){
 		printf("Blocked Burst Nano: %d\n", ptr->head->blockedBurstNano);
 		printf("Blocked Burst Second: %d\n", ptr->head->blockedBurstSecond);
 		printf("Requested Resource: %d\n", ptr->head->requestedResource);
+		int n;
+		printf("Resources: [");
+		for(n = 0; n < 20; n++){
+			printf("%d,", ptr->head->resUsed->resourcesUsed[n]);
+		}
+		printf("]\n");
 		ptr = ptr->next;
 	}
 }
@@ -361,6 +368,11 @@ PCB *newPCB(int pid){
 	newP->blockedBurstSecond = 0;
 	newP->blockedBurstNano = 0;
 	newP->requestedResource = 0;
+	newP->resUsed = malloc(sizeof(resourceStruct));
+	int n;
+	for(n = 0; n < 20; n++){
+		newP->resUsed->resourcesUsed[n] = 0;
+	}
 
 	return newP;
 }
