@@ -25,6 +25,11 @@
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
 
+Queue *firstInBlockedQueue;
+Queue *lastInBlockedQueue; 
+Queue *firstInProcessList;
+Queue *lastInProcessList;
+
 //globals
 static volatile sig_atomic_t doneflag = 0;
 
@@ -47,18 +52,19 @@ int main (int argc, char *argv[]){
 
 	srand(time(NULL) + getpid());
 
-	Queue *firstInBlockedQueue = NULL;
-	Queue *lastInBlockedQueue = NULL; 
+	firstInBlockedQueue = NULL;
+	lastInBlockedQueue = NULL; 
 
-	Queue *firstInProcessList = NULL;
-	Queue *lastInProcessList = NULL;
+	firstInProcessList = NULL;
+	lastInProcessList = NULL;
 
 	int childPid;
 	int timeLimit = 2;
-	int requestsGranted = 0;
-	int totalRequests = 0;
-	int deadlockFunctionCount = 0;
-	int childLimit = 15;
+	// int requestsGranted = 0;
+	// int totalRequests = 0;
+	// int deadlockFunctionCount = 0;
+	int childLimit = 18;
+    
     totalChildren = 0;
 
 	sigHandling();
@@ -67,8 +73,7 @@ int main (int argc, char *argv[]){
 	alarm(timeLimit);
 	// setForkTimer();
 
-	// init to message struct 
-	mymsg_t *toParentMsg;
+	// init message struct 
 	toParentMsg = malloc(sizeof(mymsg_t));
 	lenOfMessage = sizeof(mymsg_t) - sizeof(long);
 
@@ -84,17 +89,7 @@ int main (int argc, char *argv[]){
 	}
 	
 	setForkTimer();
-	// printf("Fork timer set at %d:%d\n", forkTime->seconds, forkTime->nanosecs);
-		// // put in blocked queue
-		// if (firstInBlockedQueue == NULL){
-		// 	firstInBlockedQueue = newQueueMember(childPid);
-		// 	lastInBlockedQueue = firstInBlockedQueue;
-		// } else {
-		// 	lastInBlockedQueue = lastInBlockedQueue->next = newQueueMember(childPid);
-
-		// }
-
-
+	
 	while(!doneflag){
 		// if(totalChildren<childLimit &&  checkIfTimeToFork()){
 		if(totalChildren < childLimit && checkIfTimeToFork() == 1){
@@ -114,26 +109,29 @@ int main (int argc, char *argv[]){
 			}
 			// printf("Made it to fork timer\n");
 			totalChildren  += 1;
-			// printf("Process %d created at %d:%d\n", childPid, sharedClock->seconds, sharedClock->nanosecs);
+			printf("Process %d created at %d:%d\n", childPid, sharedClock->seconds, sharedClock->nanosecs);
 			setForkTimer();
 			// printf("New Fork Timer set at %d:%d\n", forkTime->seconds, forkTime->nanosecs);
 		}	
-
+		// child terminating
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 1, IPC_NOWAIT) != -1){
 			// printf("Message received from %d to terminate itself\n", toParentMsg->pid);
+			deleteFromProcessList(toParentMsg->pid, firstInProcessList);
+			// totalChildren -= 1;
 
 		}
 
+		// child requests resource
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 3, IPC_NOWAIT) != -1){
 			// printf("Message received from %d to request resource %d from parent\n", toParentMsg->pid, toParentMsg->msg);
-			if (deadlockAvoidance(toParentMsg->msg) == 1){
+			if (deadlockAvoidance(toParentMsg->res) == 1){
 				toParentMsg->mtype = toParentMsg->pid;
 				// printf("Resource granted to %d\n", toParentMsg->pid);
 				msgsnd(queueid, toParentMsg, lenOfMessage, 0);
 			} else {
 
 				printf("\nDEADLOCK AVOIDANCE ACTIVATED!! \n");
-				printf("by: %d for requesting %d\n", toParentMsg->pid, toParentMsg->msg);
+				printf("by: %d for requesting %d\n", toParentMsg->pid, toParentMsg->res);
 
 				// put in blocked queue
 				if (firstInBlockedQueue == NULL){
@@ -148,9 +146,10 @@ int main (int argc, char *argv[]){
 			}
 
 		}
-
+		// child releasing resource
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 2, IPC_NOWAIT) != -1){
 			// printf("Message received from %d to deallocate resource %d in parent\n", toParentMsg->pid, toParentMsg->msg);
+			allocatedResources->resourcesUsed[toParentMsg->res] -= 1;
 
 		}
 
@@ -183,14 +182,13 @@ int main (int argc, char *argv[]){
     printf("Process List: \n");
     printQueue(firstInProcessList);
 
-    printf("\nBlocked Queue: \n");
-    printQueue(firstInBlockedQueue);
+    // printf("\nBlocked Queue: \n");
+    // printQueue(firstInBlockedQueue);
 
 	printf("Pid of first in process queue: %d\n", firstInProcessList->head->pid);
 	printf("Pid at end of process queue: %d\n", lastInProcessList->head->pid);
 
 
-	setForkTimer();
 	tearDown();
 
 
@@ -323,6 +321,38 @@ Queue *newBlockedQueueMember(PCB *pcb)
     
     return newQ;
 }
+
+void deleteFromProcessList(int pidToDelete, Queue *ptr){
+	//case of first element in queue
+	if (ptr->head->pid == pidToDelete){
+		firstInProcessList = ptr->next;
+		return;
+	} else {
+		while(ptr != NULL){
+			if (ptr->next->head->pid == pidToDelete){
+				ptr->next = ptr->next->next;
+				if(ptr->next == NULL){
+					lastInProcessList = ptr;
+				}
+				return;
+			} else {
+				ptr = ptr->next;
+			}
+		}
+	}
+}
+
+void printQueue(Queue * ptr){
+	while(ptr != NULL){
+		printf("Pid: %d\n", ptr->head->pid);
+		printf("Total Blocked Time: %d\n", ptr->head->totalBlockedTime);
+		printf("Blocked Burst Nano: %d\n", ptr->head->blockedBurstNano);
+		printf("Blocked Burst Second: %d\n", ptr->head->blockedBurstSecond);
+		printf("Requested Resource: %d\n", ptr->head->requestedResource);
+		ptr = ptr->next;
+	}
+}
+
 PCB *newPCB(int pid){
 	PCB *newP;
 	newP = malloc(sizeof(PCB));
@@ -379,15 +409,5 @@ int deadlockAvoidance(int requestedElement){
 	}
 }
 
-void printQueue(Queue * ptr){
-	while(ptr != NULL){
-		printf("Pid: %d\n", ptr->head->pid);
-		printf("Total Blocked Time: %d\n", ptr->head->totalBlockedTime);
-		printf("Blocked Burst Nano: %d\n", ptr->head->blockedBurstNano);
-		printf("Blocked Burst Second: %d\n", ptr->head->blockedBurstSecond);
-		printf("Requested Resource: %d\n", ptr->head->requestedResource);
-		ptr = ptr->next;
-	}
-}
 
 

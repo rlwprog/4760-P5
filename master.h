@@ -19,7 +19,7 @@ typedef struct pcb {
 typedef struct {
 	long mtype;
 	pid_t pid;
-	int msg;
+	int res;
 } mymsg_t;
 
 typedef struct {
@@ -37,6 +37,7 @@ void tearDown();
 
 Queue *newProcessMember(int pid);
 Queue *newBlockedQueueMember(PCB *pcb);
+void deleteFromProcessList(int pidToDelete, Queue *ptr);
 void printQueue(Queue * ptr);
 PCB *newPCB(int pid);
 PCB *findPCB(int pid, Queue * ptrHead);

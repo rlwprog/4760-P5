@@ -84,18 +84,19 @@ int main (int argc, char *argv[]){
 			// printf("Child %d randomly selects the action %d\n", pid, randomActionTaken);
 			randomResourceChoice = rand() % 20;
 
-
+			// child terminates
 			if(randomActionTaken < TERMCONSTANT){
 				childDoneFlag = 1;
-				//terminate child, send termination status to parent to deallocated resources
+				//send termination status to parent to deallocated resources
 				printf("\nChild %d terminated!\n\n", pid);
 				toParentMsg->mtype = 1;
 				toParentMsg->pid = pid;
 				toParentMsg->msg = 0;
 				msgsnd(queueid, toParentMsg, lenOfMessage, 1);
+
+				//request resource
 			} else if (randomActionTaken >= TERMCONSTANT && randomActionTaken < REQUESTCONSTANT){
 				if ((allocatedResources->resourcesUsed[randomResourceChoice]) < (maxResources->resourcesUsed[randomResourceChoice])){
-					//ask for resource
 					toParentMsg->mtype = 3;
 					toParentMsg->pid = pid;
 					toParentMsg->msg = randomResourceChoice;
@@ -107,6 +108,7 @@ int main (int argc, char *argv[]){
 					}
 
 				}
+				// release resource
 			} else {
 				if ((allocatedResources->resourcesUsed[randomResourceChoice]) > 0){
 					//tell parent resource is being deallocated
@@ -115,9 +117,9 @@ int main (int argc, char *argv[]){
 					toParentMsg->msg = randomResourceChoice;
 					// printf("Child %d asks to dealocate resource %d\n", pid, randomResourceChoice);
 					msgsnd(queueid, toParentMsg, lenOfMessage, 2);
-					if (msgrcv(queueid, toParentMsg, lenOfMessage, pid, 0) != -1){
-						allocatedResources->resourcesUsed[randomResourceChoice] -= 1;
-					}
+					// if (msgrcv(queueid, toParentMsg, lenOfMessage, pid, 0) != -1){
+					// 	allocatedResources->resourcesUsed[randomResourceChoice] -= 1;
+					// }
 				}
 			}
 
@@ -135,10 +137,11 @@ int main (int argc, char *argv[]){
 	// msgrcv(queueid, toParentMsg, lenOfMessage, 1, 0);
 	// printf("Received message in child %d: %d\n", pid, ctopMsg->msg);
 
-	printf("End of child %d\n", pid);
-	// for (i = 0; i < 20; i++){
-	// 	printf("Printing resources for %d at [%d]: %d\n", pid, i, allocatedResources->resourcesUsed[i]);
-	// }
+	printf("End of child %d: [", pid);
+	for (i = 0; i < 20; i++){
+		printf("%d,", allocatedResources->resourcesUsed[i]);
+	}
+	printf("]\n");
 	exit(1);
 	return 1;
 
