@@ -88,7 +88,7 @@ int main (int argc, char *argv[]){
 			if(randomActionTaken < TERMCONSTANT){
 				childDoneFlag = 1;
 				//terminate child, send termination status to parent to deallocated resources
-				printf("Child %d terminated!\n", pid);
+				printf("\nChild %d terminated!\n\n", pid);
 				toParentMsg->mtype = 1;
 				toParentMsg->pid = pid;
 				toParentMsg->msg = 0;

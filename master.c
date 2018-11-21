@@ -84,7 +84,7 @@ int main (int argc, char *argv[]){
 	}
 	
 	setForkTimer();
-
+	// printf("Fork timer set at %d:%d\n", forkTime->seconds, forkTime->nanosecs);
 		// // put in blocked queue
 		// if (firstInBlockedQueue == NULL){
 		// 	firstInBlockedQueue = newQueueMember(childPid);
@@ -97,7 +97,7 @@ int main (int argc, char *argv[]){
 
 	while(!doneflag){
 		// if(totalChildren<childLimit &&  checkIfTimeToFork()){
-		if(totalChildren < childLimit && checkIfTimeToFork()){
+		if(totalChildren < childLimit && checkIfTimeToFork() == 1){
 
 			if ((childPid = fork()) == 0){
 				execlp("./worker", "./worker", (char*)NULL);
@@ -114,7 +114,9 @@ int main (int argc, char *argv[]){
 			}
 			// printf("Made it to fork timer\n");
 			totalChildren  += 1;
+			// printf("Process %d created at %d:%d\n", childPid, sharedClock->seconds, sharedClock->nanosecs);
 			setForkTimer();
+			// printf("New Fork Timer set at %d:%d\n", forkTime->seconds, forkTime->nanosecs);
 		}	
 
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 1, IPC_NOWAIT) != -1){
@@ -153,7 +155,7 @@ int main (int argc, char *argv[]){
 		}
 
         // printf("Parent %d : %d\n", sharedClock->seconds, sharedClock->nanosecs);
-         sharedClock->nanosecs += 1000;
+         sharedClock->nanosecs += 1000000;
             if (sharedClock->nanosecs >= 1000000000){
                 sharedClock->seconds += 1;
                 sharedClock->nanosecs = sharedClock->nanosecs % 1000000000;
@@ -173,7 +175,11 @@ int main (int argc, char *argv[]){
 
 
 
-    printf("\nEnd of parent\n");
+    printf("\nEnd of parent!\n");
+    printf("Final Clock time is at %d:%d\n", sharedClock->seconds, sharedClock->nanosecs);
+    printf("Final Fork time is at %d:%d\n", forkTime->seconds, forkTime->nanosecs);
+
+
     printf("Process List: \n");
     printQueue(firstInProcessList);
 
@@ -341,9 +347,14 @@ PCB *findPCB(int pid, Queue * ptrHead){
 }
 
 int checkIfTimeToFork(){
-	if (forkTime->nanosecs >= sharedClock->nanosecs && forkTime->seconds >= sharedClock->seconds){
+	
+	if ((sharedClock->nanosecs >= forkTime->nanosecs) && (sharedClock->seconds >= forkTime->seconds)){
 		return 1;
 	} else {
+		if(sharedClock->seconds < 2 && sharedClock->nanosecs%100000000 == 0){
+		// printf("\nShared Clock is at %d:%d\n", sharedClock->seconds, sharedClock->nanosecs);
+		// printf("Fork Clock is at %d:%d\n\n", forkTime->seconds, forkTime->nanosecs);
+	}
 		return 0;
 	}
 }
@@ -355,6 +366,7 @@ void setForkTimer(){
 	forkTime->seconds = sharedClock->seconds;
 	if(forkTime->nanosecs >= 1000000000){
 		forkTime->seconds += 1;
+		forkTime->nanosecs = forkTime->nanosecs%1000000000;
 	}
 }
 
