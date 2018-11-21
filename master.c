@@ -58,7 +58,7 @@ int main (int argc, char *argv[]){
 	int requestsGranted = 0;
 	int totalRequests = 0;
 	int deadlockFunctionCount = 0;
-	int childLimit = 2;
+	int childLimit = 15;
     totalChildren = 0;
 
 	sigHandling();
@@ -80,6 +80,7 @@ int main (int argc, char *argv[]){
 	for (i = 0; i < 20; i++){
 		maxResources->resourcesUsed[i] = (rand() % 9) + 1;
 		allocatedResources->resourcesUsed[i] = 0;
+		printf("Max resources [%d]: %d\n", i, maxResources->resourcesUsed[i]);
 	}
 	
 	setForkTimer();
@@ -106,33 +107,48 @@ int main (int argc, char *argv[]){
 			}	
 
 			if (firstInProcessList == NULL){
-				firstInProcessList = newQueueMember(childPid);
+				firstInProcessList = newProcessMember(childPid);
 				lastInProcessList = firstInProcessList;
 			} else {
-				lastInProcessList = lastInProcessList->next = newQueueMember(childPid);
+				lastInProcessList = lastInProcessList->next = newProcessMember(childPid);
 			}
-			printf("Made it to fork timer\n");
+			// printf("Made it to fork timer\n");
 			totalChildren  += 1;
 			setForkTimer();
 		}	
 
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 1, IPC_NOWAIT) != -1){
-			printf("Message received from %d to terminate itself\n", toParentMsg->pid);
+			// printf("Message received from %d to terminate itself\n", toParentMsg->pid);
 
 		}
 
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 3, IPC_NOWAIT) != -1){
-			printf("Message received from %d to request resource %d from parent\n", toParentMsg->pid, toParentMsg->msg);
+			// printf("Message received from %d to request resource %d from parent\n", toParentMsg->pid, toParentMsg->msg);
 			if (deadlockAvoidance(toParentMsg->msg) == 1){
 				toParentMsg->mtype = toParentMsg->pid;
-				printf("Resource granted to %d\n", toParentMsg->pid);
+				// printf("Resource granted to %d\n", toParentMsg->pid);
 				msgsnd(queueid, toParentMsg, lenOfMessage, 0);
+			} else {
+
+				printf("\nDEADLOCK AVOIDANCE ACTIVATED!! \n");
+				printf("by: %d for requesting %d\n", toParentMsg->pid, toParentMsg->msg);
+
+				// put in blocked queue
+				if (firstInBlockedQueue == NULL){
+					firstInBlockedQueue = newBlockedQueueMember(findPCB(toParentMsg->pid, firstInProcessList));
+					lastInBlockedQueue = firstInBlockedQueue;
+				} else {
+					lastInBlockedQueue = lastInBlockedQueue->next = newBlockedQueueMember(findPCB(toParentMsg->pid, firstInProcessList));
+				}
+				lastInBlockedQueue->head->blockedBurstSecond = sharedClock->seconds;
+				lastInBlockedQueue->head->blockedBurstNano = sharedClock->nanosecs;
+				lastInBlockedQueue->head->requestedResource = toParentMsg->mtype;
 			}
 
 		}
 
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 2, IPC_NOWAIT) != -1){
-			printf("Message received from %d to deallocate resource %d in parent\n", toParentMsg->pid, toParentMsg->msg);
+			// printf("Message received from %d to deallocate resource %d in parent\n", toParentMsg->pid, toParentMsg->msg);
 
 		}
 
@@ -142,7 +158,7 @@ int main (int argc, char *argv[]){
                 sharedClock->seconds += 1;
                 sharedClock->nanosecs = sharedClock->nanosecs % 1000000000;
             }
-            if (sharedClock->seconds >= 10){
+            if (sharedClock->seconds >= 1000){
                 sharedClock->nanosecs = 0;
                 doneflag = 1;
             }
@@ -155,7 +171,14 @@ int main (int argc, char *argv[]){
 
     }
 
-    printf("End of parent\n");
+
+
+    printf("\nEnd of parent\n");
+    printf("Process List: \n");
+    printQueue(firstInProcessList);
+
+    printf("\nBlocked Queue: \n");
+    printQueue(firstInBlockedQueue);
 
 	printf("Pid of first in process queue: %d\n", firstInProcessList->head->pid);
 	printf("Pid at end of process queue: %d\n", lastInProcessList->head->pid);
@@ -274,7 +297,7 @@ void tearDown(){
 	msgctl(queueid, IPC_RMID, NULL);
 }
 
-Queue *newQueueMember(int pid)
+Queue *newProcessMember(int pid)
 {
     Queue *newQ;
     newQ = malloc(sizeof(Queue));
@@ -284,15 +307,37 @@ Queue *newQueueMember(int pid)
     
     return newQ;
 }
-
+Queue *newBlockedQueueMember(PCB *pcb)
+{
+    Queue *newQ;
+    newQ = malloc(sizeof(Queue));
+    newQ->next = NULL;
+    newQ->head = malloc(sizeof(PCB));
+    newQ->head = pcb;
+    
+    return newQ;
+}
 PCB *newPCB(int pid){
 	PCB *newP;
 	newP = malloc(sizeof(PCB));
 	newP->pid = pid;
 	newP->totalBlockedTime = 0;
-	newP->blockedBurst = 0;
+	newP->blockedBurstSecond = 0;
+	newP->blockedBurstNano = 0;
+	newP->requestedResource = 0;
 
 	return newP;
+}
+
+PCB *findPCB(int pid, Queue * ptrHead){
+	while(ptrHead != NULL){
+		if(ptrHead->head->pid == pid){
+			return ptrHead->head;
+		} else {
+			ptrHead = ptrHead->next;
+		}
+	}
+	return NULL;
 }
 
 int checkIfTimeToFork(){
@@ -321,3 +366,16 @@ int deadlockAvoidance(int requestedElement){
 		return 0;
 	}
 }
+
+void printQueue(Queue * ptr){
+	while(ptr != NULL){
+		printf("Pid: %d\n", ptr->head->pid);
+		printf("Total Blocked Time: %d\n", ptr->head->totalBlockedTime);
+		printf("Blocked Burst Nano: %d\n", ptr->head->blockedBurstNano);
+		printf("Blocked Burst Second: %d\n", ptr->head->blockedBurstSecond);
+		printf("Requested Resource: %d\n", ptr->head->requestedResource);
+		ptr = ptr->next;
+	}
+}
+
+

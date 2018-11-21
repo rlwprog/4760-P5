@@ -21,7 +21,7 @@
 #define MAXRESOURCEKEY	71657            /* Parent and child agree on common key for resources.*/
 
 #define TERMCONSTANT 2 				// Percent chance that a child process will terminate instead of requesting/releasing a resource
-#define REQUESTCONSTANT 50			// Percent chance that a child process will request a new resource
+#define REQUESTCONSTANT 80			// Percent chance that a child process will request a new resource
 
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
@@ -77,7 +77,7 @@ int main (int argc, char *argv[]){
 	sigHandling();
 	initPCBStructures();
 
-    printf("Child process enterred: %d\n", pid);
+    // printf("Child process enterred: %d\n", pid);
 
 	while(!childDoneFlag){
 			randomActionTaken = rand() % 100;
@@ -88,7 +88,7 @@ int main (int argc, char *argv[]){
 			if(randomActionTaken < TERMCONSTANT){
 				childDoneFlag = 1;
 				//terminate child, send termination status to parent to deallocated resources
-				// printf("Child %d terminated!\n", pid);
+				printf("Child %d terminated!\n", pid);
 				toParentMsg->mtype = 1;
 				toParentMsg->pid = pid;
 				toParentMsg->msg = 0;
@@ -99,10 +99,11 @@ int main (int argc, char *argv[]){
 					toParentMsg->mtype = 3;
 					toParentMsg->pid = pid;
 					toParentMsg->msg = randomResourceChoice;
-					// printf("Child %d asks for resource %d\n", pid, randomResourceChoice);
+					printf("Child %d asks for resource %d\n", pid, randomResourceChoice);
 					msgsnd(queueid, toParentMsg, lenOfMessage, 3);
 					if (msgrcv(queueid, toParentMsg, lenOfMessage, pid, 0) != -1){
 						allocatedResources->resourcesUsed[randomResourceChoice] += 1;
+
 					}
 
 				}
@@ -124,7 +125,7 @@ int main (int argc, char *argv[]){
 
 		
 			// printf("Child %d reads clock   %d : %d\n", pid, sharedClock->seconds, sharedClock->nanosecs);
-			if(sharedClock->seconds >= 10){
+			if(sharedClock->seconds >= 1000){
 				childDoneFlag = 1;
 			}
 		
@@ -134,11 +135,10 @@ int main (int argc, char *argv[]){
 	// msgrcv(queueid, toParentMsg, lenOfMessage, 1, 0);
 	// printf("Received message in child %d: %d\n", pid, ctopMsg->msg);
 
-	// for (i = 0; i < 20; i++){
-	// 	printf("Printings resources for %d: %d\n", pid, maxResources->resourcesUsed[i]);
-	// }
-
 	printf("End of child %d\n", pid);
+	// for (i = 0; i < 20; i++){
+	// 	printf("Printing resources for %d at [%d]: %d\n", pid, i, allocatedResources->resourcesUsed[i]);
+	// }
 	exit(1);
 	return 1;
 

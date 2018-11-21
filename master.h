@@ -10,8 +10,10 @@ typedef struct {
 
 typedef struct pcb {
 	int pid;
+	int requestedResource;
 	int totalBlockedTime;
-	int blockedBurst;
+	int blockedBurstSecond;
+	int blockedBurstNano;
 } PCB;
 
 typedef struct {
@@ -33,8 +35,11 @@ static void childFinished(int signo);
 int initPCBStructures();
 void tearDown();
 
-Queue *newQueueMember(int pid);
+Queue *newProcessMember(int pid);
+Queue *newBlockedQueueMember(PCB *pcb);
+void printQueue(Queue * ptr);
 PCB *newPCB(int pid);
+PCB *findPCB(int pid, Queue * ptrHead);
 
 int checkIfTimeToFork();
 void setForkTimer();
