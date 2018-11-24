@@ -10,3 +10,4 @@ worker:
 clean:
 	rm worker
 	rm oss
+	rm logfile
