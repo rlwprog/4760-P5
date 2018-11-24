@@ -21,7 +21,7 @@
 #define MAXRESOURCEKEY	71657            /* Parent and child agree on common key for resources.*/
 
 #define TERMCONSTANT 2 				// Percent chance that a child process will terminate instead of requesting/releasing a resource
-#define REQUESTCONSTANT 80			// Percent chance that a child process will request a new resource
+#define REQUESTCONSTANT 50			// Percent chance that a child process will request a new resource
 
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
@@ -70,8 +70,10 @@ int main (int argc, char *argv[]){
 
 	pid_t pid = getpid();
 	int i;
+	int resIndex;
 	int randomResourceChoice;
 	int randomActionTaken;
+	int resCount = 0;
 
 
 	sigHandling();
@@ -82,45 +84,63 @@ int main (int argc, char *argv[]){
 	while(!childDoneFlag){
 			randomActionTaken = rand() % 100;
 			// printf("Child %d randomly selects the action %d\n", pid, randomActionTaken);
-			randomResourceChoice = rand() % 20;
 
 			// child terminates
 			if(randomActionTaken < TERMCONSTANT){
 				childDoneFlag = 1;
 				//send termination status to parent to deallocated resources
-				printf("\nChild %d terminated!\n\n", pid);
+				// printf("\nChild %d terminated!\n\n", pid);
 				toParentMsg->mtype = 1;
 				toParentMsg->pid = pid;
 				toParentMsg->msg = 0;
 				msgsnd(queueid, toParentMsg, lenOfMessage, 1);
+				if (msgrcv(queueid, toParentMsg, lenOfMessage, pid, 0) != -1){
+					allocatedResources->resourcesUsed[randomResourceChoice] += 1;
+				}
 
 				//request resource
 			} else if (randomActionTaken >= TERMCONSTANT && randomActionTaken < REQUESTCONSTANT){
-				if ((allocatedResources->resourcesUsed[randomResourceChoice]) < (maxResources->resourcesUsed[randomResourceChoice])){
+				randomResourceChoice = rand() % 20;
+				if ((allocatedResources->resourcesUsed[randomResourceChoice]) < (maxResources->resourcesUsed[randomResourceChoice]) && allocatedResources->resourcesUsed[randomResourceChoice] < 1){
 					toParentMsg->mtype = 3;
 					toParentMsg->pid = pid;
 					toParentMsg->msg = randomResourceChoice;
-					printf("Child %d asks for resource %d\n", pid, randomResourceChoice);
+					// printf("Child %d asks for resource %d\n", pid, randomResourceChoice);
 					msgsnd(queueid, toParentMsg, lenOfMessage, 3);
 					if (msgrcv(queueid, toParentMsg, lenOfMessage, pid, 0) != -1){
 						allocatedResources->resourcesUsed[randomResourceChoice] += 1;
-
+						resCount += 1;
 					}
 
 				}
-				// release resource
+				// release randomly selected resource
 			} else {
-				if ((allocatedResources->resourcesUsed[randomResourceChoice]) > 0){
-					//tell parent resource is being deallocated
-					toParentMsg->mtype = 2;
-					toParentMsg->pid = pid;
-					toParentMsg->msg = randomResourceChoice;
-					// printf("Child %d asks to dealocate resource %d\n", pid, randomResourceChoice);
-					msgsnd(queueid, toParentMsg, lenOfMessage, 2);
-					// if (msgrcv(queueid, toParentMsg, lenOfMessage, pid, 0) != -1){
-					// 	allocatedResources->resourcesUsed[randomResourceChoice] -= 1;
-					// }
-				}
+				if(resCount > 0){
+					resIndex = 0;
+					randomResourceChoice = rand() % resCount;
+					for(i = 0; i < 20; i++){
+						if(allocatedResources->resourcesUsed[i] > 0){
+							if (resIndex == randomResourceChoice){
+								// printf("Child %d deallocates resource %d resource count: %d\n", pid, i, resCount);
+
+								toParentMsg->mtype = 2;
+								toParentMsg->pid = pid;
+								toParentMsg->msg = i;
+								// printf("Child %d asks to dealocate resource %d\n", pid, randomResourceChoice);
+								msgsnd(queueid, toParentMsg, lenOfMessage, 2);
+								if (msgrcv(queueid, toParentMsg, lenOfMessage, pid, 0) != -1){
+									allocatedResources->resourcesUsed[i] -= 1;
+									resCount -= 1;
+									i = 20;
+
+								}
+								
+							} else {
+								resIndex += 1;
+							}
+						}
+					}
+				}	
 			}
 
 

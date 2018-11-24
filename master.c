@@ -37,13 +37,12 @@ static clockStruct *sharedClock;
 static clockStruct *forkTime;
 static resourceStruct *maxResources;
 static resourceStruct *allocatedResources;
+static resourceStruct *availableResources;
 static mymsg_t *toParentMsg;
 static int queueid;
 
 int randForkTime;
-
 int maxResourceSegment;
-
 int totalChildren;
 int shmclock;
 int lenOfMessage;
@@ -51,6 +50,12 @@ int lenOfMessage;
 int main (int argc, char *argv[]){
 
 	srand(time(NULL) + getpid());
+
+	Queue * tmpPtr;
+	Queue * prevTmpPtr;
+
+	tmpPtr = NULL;
+	prevTmpPtr = NULL;
 
 	firstInBlockedQueue = NULL;
 	lastInBlockedQueue = NULL; 
@@ -60,6 +65,7 @@ int main (int argc, char *argv[]){
 
 	int childPid;
 	int timeLimit = 2;
+	int tmpRes;
 	// int requestsGranted = 0;
 	// int totalRequests = 0;
 	// int deadlockFunctionCount = 0;
@@ -78,14 +84,17 @@ int main (int argc, char *argv[]){
 	lenOfMessage = sizeof(mymsg_t) - sizeof(long);
 
 	//init allocated resources
-	allocatedResources = malloc(sizeof(allocatedResources));
+	allocatedResources = malloc(sizeof(resourceStruct));
+	availableResources = malloc(sizeof(resourceStruct));
 
 	// init both resource structs' resource elements
 	int i;
 	for (i = 0; i < 20; i++){
 		maxResources->resourcesUsed[i] = (rand() % 9) + 1;
+		availableResources->resourcesUsed[i] = maxResources->resourcesUsed[i];
 		allocatedResources->resourcesUsed[i] = 0;
-		printf("Max resources [%d]: %d\n", i, maxResources->resourcesUsed[i]);
+		// printf("Max resources [%d]: %d\n", i, maxResources->resourcesUsed[i]);
+		printf("Available resources [%d]: %d\n", i, availableResources->resourcesUsed[i]);
 	}
 	
 	setForkTimer();
@@ -117,8 +126,9 @@ int main (int argc, char *argv[]){
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 1, IPC_NOWAIT) != -1){
 			// printf("Message received from %d to terminate itself\n", toParentMsg->pid);
 			deleteFromProcessList(toParentMsg->pid, firstInProcessList);
-			// totalChildren -= 1;
 
+			toParentMsg->mtype = toParentMsg->pid;
+			msgsnd(queueid, toParentMsg, lenOfMessage, 0);
 		}
 
 		// child requests resource
@@ -127,11 +137,11 @@ int main (int argc, char *argv[]){
 			if (deadlockAvoidance(toParentMsg->res) == 1){
 				findPCB(toParentMsg->pid, firstInProcessList)->resUsed->resourcesUsed[toParentMsg->res] += 1;
 				toParentMsg->mtype = toParentMsg->pid;
-				// printf("Resource granted to %d\n", toParentMsg->pid);
+				printf("\nRESOURCE GRANTED! %d for %d\n", toParentMsg->res, toParentMsg->pid);
 				msgsnd(queueid, toParentMsg, lenOfMessage, 0);
 			} else {
 
-				printf("\nDEADLOCK AVOIDANCE ACTIVATED!! \n");
+				printf("\n        DEADLOCK AVOIDANCE ACTIVATED!! \n");
 				printf("by: %d for requesting %d\n", toParentMsg->pid, toParentMsg->res);
 
 				// put in blocked queue
@@ -143,16 +153,74 @@ int main (int argc, char *argv[]){
 				}
 				lastInBlockedQueue->head->blockedBurstSecond = sharedClock->seconds;
 				lastInBlockedQueue->head->blockedBurstNano = sharedClock->nanosecs;
-				lastInBlockedQueue->head->requestedResource = toParentMsg->mtype;
+				lastInBlockedQueue->head->requestedResource = toParentMsg->res;
 			}
 
 		}
 		// child releasing resource
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 2, IPC_NOWAIT) != -1){
-			// printf("Message received from %d to deallocate resource %d in parent\n", toParentMsg->pid, toParentMsg->msg);
+			printf("\nDEALLOCATED RESOURCE! %d for %d\n", toParentMsg->res, toParentMsg->pid);
 			allocatedResources->resourcesUsed[toParentMsg->res] -= 1;
+			availableResources->resourcesUsed[toParentMsg->res] += 1;
+			findPCB(toParentMsg->pid, firstInProcessList)->resUsed->resourcesUsed[toParentMsg->res] -= 1;
+
+			toParentMsg->mtype = toParentMsg->pid;
+			msgsnd(queueid, toParentMsg, lenOfMessage, 0);
 
 		}
+
+		// try to remove element from blocked queue
+		tmpPtr = firstInBlockedQueue;
+		prevTmpPtr = firstInBlockedQueue;
+		int count = 1;
+
+		while(tmpPtr != NULL){
+			tmpRes = tmpPtr->head->requestedResource;
+			// printf("Count: %d Res: %d\n", count, tmpRes);
+			// count += 1;
+			// if (sharedClock->nanosecs % 100000000 == 1){
+			// 	printf("\n\n\nTEMP RES: %d  child:  %d\n\n\n\n\n", tmpRes, tmpPtr->head->pid);
+			// }
+
+			// printf("Blocked queue pid: %d, Resource: %d, Allocated resource: %d, Max resource: %d, Available: %d\n", tmpPtr->head->pid, tmpRes, allocatedResources->resourcesUsed[tmpRes], maxResources->resourcesUsed[tmpRes], availableResources->resourcesUsed[tmpRes]);
+
+			if ((allocatedResources->resourcesUsed[tmpRes]) < (maxResources->resourcesUsed[tmpRes])){
+				printf("\n\n\n\n\nTEMPORARY RESOURCE: %d  child:  %d\n\n\n\n\n", tmpRes, tmpPtr->head->pid);
+			
+				if(tmpPtr == prevTmpPtr){
+					firstInBlockedQueue = tmpPtr->next;
+				} else {
+					if (tmpPtr->next == NULL){
+						lastInBlockedQueue = prevTmpPtr;
+					}
+
+						prevTmpPtr->next = tmpPtr->next;	
+				}
+				printf("\nUNBLOCKED RESOURCE! pid: %d resource: %d\n\n", tmpPtr->head->pid, tmpRes);
+				allocatedResources->resourcesUsed[tmpRes] += 1;
+				availableResources->resourcesUsed[tmpRes] -= 1;
+				findPCB(tmpPtr->head->pid, firstInProcessList)->resUsed->resourcesUsed[tmpRes] += 1;
+
+
+
+
+
+				toParentMsg->mtype = tmpPtr->head->pid;
+				msgsnd(queueid, toParentMsg, lenOfMessage, 0);
+				tmpPtr = NULL;
+				prevTmpPtr = NULL;
+			} else {
+				if (prevTmpPtr != tmpPtr){
+					prevTmpPtr = tmpPtr;
+				}
+
+				tmpPtr = tmpPtr->next;
+				if (tmpPtr != NULL){
+					// printf("tmp%d\n", tmpPtr->head->pid);
+				}
+			}
+		}
+
 
         // printf("Parent %d : %d\n", sharedClock->seconds, sharedClock->nanosecs);
          sharedClock->nanosecs += 1000000;
@@ -183,12 +251,32 @@ int main (int argc, char *argv[]){
     printf("Process List: \n");
     printQueue(firstInProcessList);
 
-    // printf("\nBlocked Queue: \n");
-    // printQueue(firstInBlockedQueue);
+    printf("\nBlocked Queue: \n");
+    printQueue(firstInBlockedQueue);
+
+
 
 	printf("Pid of first in process queue: %d\n", firstInProcessList->head->pid);
 	printf("Pid at end of process queue: %d\n", lastInProcessList->head->pid);
 
+
+	printf("\nAvailable: \n");
+	int n;
+	for(n = 0; n < 20; n++){
+		printf("%d,", availableResources->resourcesUsed[n]);
+	}
+	printf("\nAllocated: \n");
+	for(n = 0; n < 20; n++){
+		printf("%d,", allocatedResources->resourcesUsed[n]);
+	}
+
+	printf("\nMax: \n");
+	for(n = 0; n < 20; n++){
+		printf("%d,", maxResources->resourcesUsed[n]);
+	}
+	
+
+	printf("\n\n\n\n\n\n\n");
 
 	tearDown();
 
@@ -326,11 +414,15 @@ Queue *newBlockedQueueMember(PCB *pcb)
 void deleteFromProcessList(int pidToDelete, Queue *ptr){
 	//case of first element in queue
 	if (ptr->head->pid == pidToDelete){
+		// printf("RESOURCES RELEASED! from %d\n", ptr->head->pid);
+		releaseAllResources(ptr->head->resUsed);
 		firstInProcessList = ptr->next;
 		return;
 	} else {
 		while(ptr != NULL){
 			if (ptr->next->head->pid == pidToDelete){
+				// printf("RESOURCES RELEASED! from %d\n", ptr->next->head->pid);
+				releaseAllResources(ptr->next->head->resUsed);
 				ptr->next = ptr->next->next;
 				if(ptr->next == NULL){
 					lastInProcessList = ptr;
@@ -412,13 +504,45 @@ void setForkTimer(){
 	}
 }
 
-int deadlockAvoidance(int requestedElement){
-	if((allocatedResources->resourcesUsed[requestedElement]) < (maxResources->resourcesUsed[requestedElement])){
-		allocatedResources->resourcesUsed[requestedElement] += 1;
+int deadlockAvoidance(int res){
+	if((allocatedResources->resourcesUsed[res]) < (maxResources->resourcesUsed[res])){
+		allocatedResources->resourcesUsed[res] += 1;
+		availableResources->resourcesUsed[res] -= 1;
 		return 1;
 	} else {
 		return 0;
 	}
+}
+
+int bakersAlgorithm(int res){
+	if((allocatedResources->resourcesUsed[res] + 1) < (maxResources->resourcesUsed[res])){
+		allocatedResources->resourcesUsed[res] += 1;
+		return 1;
+	} else {
+		return 0;
+	}
+	return 0;
+}
+
+void releaseAllResources(resourceStruct * res){
+	// printf("RESOURCES RELEASED!\n");
+
+	int r;
+
+	for (r = 0; r < 20; r++){
+		// printf("Before [%d]: %d,", r, availableResources->resourcesUsed[r]);
+		if(res->resourcesUsed[r] > 0){
+
+			// printf("Before [%d]: %d,", r, availableResources->resourcesUsed[r]);
+
+			availableResources->resourcesUsed[r] += res->resourcesUsed[r];
+			allocatedResources->resourcesUsed[r] -= res->resourcesUsed[r];
+			
+		}
+		// printf("After [%d]: %d,", r, availableResources->resourcesUsed[r]);
+	}
+	// printf("\n");
+
 }
 
 
