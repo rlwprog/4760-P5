@@ -45,5 +45,5 @@ PCB *findPCB(int pid, Queue * ptrHead);
 int checkIfTimeToFork();
 void setForkTimer();
 int deadlockAvoidance(int res);
-int bankersAlgorithm(int res);
+int bankersAlgorithm(int res, PCB * proc);
 void releaseAllResources(resourceStruct * res);

@@ -43,9 +43,12 @@ static int queueid;
 
 int randForkTime;
 int maxResourceSegment;
-int totalChildren;
+int childCounter;
 int shmclock;
 int lenOfMessage;
+
+int requestsGranted;
+int deadlockFunctionCount;
 
 int main (int argc, char *argv[]){
 
@@ -66,12 +69,15 @@ int main (int argc, char *argv[]){
 	int childPid;
 	int timeLimit = 2;
 	int tmpRes;
-	// int requestsGranted = 0;
-	// int totalRequests = 0;
-	// int deadlockFunctionCount = 0;
+
 	int childLimit = 18;
-    
-    totalChildren = 0;
+
+	childCounter = 0;
+    int totalChildren = 0;
+
+    requestsGranted = 0;
+	deadlockFunctionCount = 0;
+
 
 	sigHandling();
 	initPCBStructures();
@@ -101,7 +107,7 @@ int main (int argc, char *argv[]){
 	
 	while(!doneflag){
 		// if(totalChildren<childLimit &&  checkIfTimeToFork()){
-		if(totalChildren < childLimit && checkIfTimeToFork() == 1){
+		if(childCounter < childLimit && checkIfTimeToFork() == 1){
 
 			if ((childPid = fork()) == 0){
 				execlp("./worker", "./worker", (char*)NULL);
@@ -118,6 +124,7 @@ int main (int argc, char *argv[]){
 			}
 			// printf("Made it to fork timer\n");
 			totalChildren  += 1;
+			childCounter += 1;
 			printf("Process %d created at %d:%d\n", childPid, sharedClock->seconds, sharedClock->nanosecs);
 			setForkTimer();
 			// printf("New Fork Timer set at %d:%d\n", forkTime->seconds, forkTime->nanosecs);
@@ -133,8 +140,10 @@ int main (int argc, char *argv[]){
 
 		// child requests resource
 		if(msgrcv(queueid, toParentMsg, lenOfMessage, 3, IPC_NOWAIT) != -1){
+			deadlockFunctionCount += 1;
 			// printf("Message received from %d to request resource %d from parent\n", toParentMsg->pid, toParentMsg->msg);
-			if (deadlockAvoidance(toParentMsg->res) == 1){
+			if (bankersAlgorithm(toParentMsg->res, findPCB(toParentMsg->pid, firstInProcessList)) == 1){
+				requestsGranted += 1;
 				findPCB(toParentMsg->pid, firstInProcessList)->resUsed->resourcesUsed[toParentMsg->res] += 1;
 				toParentMsg->mtype = toParentMsg->pid;
 				printf("\nRESOURCE GRANTED! %d for %d\n", toParentMsg->res, toParentMsg->pid);
@@ -233,10 +242,16 @@ int main (int argc, char *argv[]){
                 doneflag = 1;
             }
 
+            if(totalChildren >= 99){
+            	doneflag = 1;
+            }
+
     }
 
-    while(totalChildren > 0){
-    	printf("Child count: %d\n", totalChildren);
+    while(childCounter > 0){
+    				// totalChildren  += 1;
+
+    	printf("Child count: %d\n", childCounter);
     	sleep(2);
 
     }
@@ -248,6 +263,8 @@ int main (int argc, char *argv[]){
     printf("Final Fork time is at %d:%d\n", forkTime->seconds, forkTime->nanosecs);
 
 
+
+
     printf("Process List: \n");
     printQueue(firstInProcessList);
 
@@ -255,28 +272,36 @@ int main (int argc, char *argv[]){
     printQueue(firstInBlockedQueue);
 
 
-
 	printf("Pid of first in process queue: %d\n", firstInProcessList->head->pid);
 	printf("Pid at end of process queue: %d\n", lastInProcessList->head->pid);
 
 
-	printf("\nAvailable: \n");
+	printf("Final total process count: %d\n", totalChildren);
+
+	printf("\nAvailable: \n[");
 	int n;
 	for(n = 0; n < 20; n++){
 		printf("%d,", availableResources->resourcesUsed[n]);
 	}
-	printf("\nAllocated: \n");
+	printf("]\nAllocated: \n[");
 	for(n = 0; n < 20; n++){
 		printf("%d,", allocatedResources->resourcesUsed[n]);
 	}
 
-	printf("\nMax: \n");
+	printf("]\nMax: \n[");
 	for(n = 0; n < 20; n++){
 		printf("%d,", maxResources->resourcesUsed[n]);
 	}
 	
 
-	printf("\n\n\n\n\n\n\n");
+	printf("]\n\n\n\n\n\n\n");
+
+	printf("Total Requests: %d\n", deadlockFunctionCount);
+	printf("Requests granted: %d\n", requestsGranted);
+
+
+
+	printf("Percentage of requests granted: %f\n", (float)requestsGranted/(float)deadlockFunctionCount*100);
 
 	tearDown();
 
@@ -328,7 +353,21 @@ int sigHandling(){
 static void endAllProcesses(int signo){
 	doneflag = 1;
 	if(signo == SIGALRM){
-		printf("\n\n\n\n\nKILLING ALL PROCESSES!!!!!\n\n\n\n\n\n");
+		printf("\nAvailable: \n[");
+		int n;
+		for(n = 0; n < 20; n++){
+			printf("%d,", availableResources->resourcesUsed[n]);
+		}
+		printf("]\nAllocated: \n[");
+		for(n = 0; n < 20; n++){
+			printf("%d,", allocatedResources->resourcesUsed[n]);
+		}
+
+		printf("]\nMax: \n[");
+		for(n = 0; n < 20; n++){
+			printf("%d,", maxResources->resourcesUsed[n]);
+		}
+		printf("]\n\n\n\n\nKILLING ALL PROCESSES!!!!!\n\n\n\n\n\n");
 		killpg(getpgid(getpid()), SIGINT);
 	}
 }
@@ -340,7 +379,7 @@ static void childFinished(int signo){
 			break;
 		} else {
 			printf("Child %d finished!\n", finishedpid);
-			totalChildren -= 1;
+			childCounter -= 1;
 		}
 	}
 }
@@ -514,14 +553,51 @@ int deadlockAvoidance(int res){
 	}
 }
 
-int bakersAlgorithm(int res){
-	if((allocatedResources->resourcesUsed[res] + 1) < (maxResources->resourcesUsed[res])){
+int bankersAlgorithm(int res, PCB * proc){
+	int r;
+	int s;
+	// for(r = 0; r < 20; r++){
+
+	// }
+	if(availableResources->resourcesUsed[res] > 1){
 		allocatedResources->resourcesUsed[res] += 1;
+		availableResources->resourcesUsed[res] -= 1;
 		return 1;
-	} else {
+	} else if (availableResources->resourcesUsed[res] == 0){
 		return 0;
+	} else {
+		for(r = 0; r < 20; r++){
+			s = r;
+			if(r == res){
+				s = res + 1;
+			}
+			if(availableResources->resourcesUsed[s] + proc->resUsed->resourcesUsed[s] < 1){
+				return 0;
+			}
+		}
+		allocatedResources->resourcesUsed[res] += 1;
+		availableResources->resourcesUsed[res] -= 1;
+		return 1;
 	}
-	return 0;
+
+	// if((allocatedResources->resourcesUsed[res] + 1) < (maxResources->resourcesUsed[res])){
+	// 	allocatedResources->resourcesUsed[res] += 1;
+	// 	availableResources->resourcesUsed[res] -= 1;
+	// 	return 1;
+	// } else if ((allocatedResources->resourcesUsed[res]) < (maxResources->resourcesUsed[res])){
+	// 	printf("Child %d: [", proc->pid);
+	// 	for(r = 0; r < 20; r++){
+	// 		printf(" %d: ", proc->resUsed->resourcesUsed[r]);
+	// 		if((maxResources->resourcesUsed[r] - allocatedResources->resourcesUsed[r] + proc->resUsed->resourcesUsed[r]) < 1){
+	// 			return 0;
+	// 		}
+	// 	}
+	// 	allocatedResources->resourcesUsed[res] += 1;
+	// 	availableResources->resourcesUsed[res] -= 1;
+	// 	return 1;
+	// } else {
+	// 	return 0;
+	// }
 }
 
 void releaseAllResources(resourceStruct * res){

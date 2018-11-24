@@ -21,7 +21,7 @@
 #define MAXRESOURCEKEY	71657            /* Parent and child agree on common key for resources.*/
 
 #define TERMCONSTANT 2 				// Percent chance that a child process will terminate instead of requesting/releasing a resource
-#define REQUESTCONSTANT 50			// Percent chance that a child process will request a new resource
+#define REQUESTCONSTANT 90			// Percent chance that a child process will request a new resource
 
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
